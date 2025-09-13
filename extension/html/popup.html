@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fake News Detector</title>
+    <link rel="stylesheet" href="/extension/styles/popup.css">
+    <script defer src="/extension/scripts/popup.js"></script>
+</head>
+<body>
+    <div class="header">
+        <div class="title">Fake News Detector</div>
+    </div>
+    
+    <div class="main">
+        <div class="current-site">
+          <div class="site-label">Active on</div>
+          <div class="site-name" id="current-site">Loading...</div>
+        </div>
+    </div>
+
+    <div class="status">
+      <span class="status-text" id="status-text">Active</span>
+      <button class="toggle-btn" id="toggle-btn">Disable</button>
+    </div>
+
+    <div class="link-box">
+        <input type="text" id="link-input" class="link-input" placeholder="Enter a link to check" />
+        <button class="check-btn" id="check-btn">Check</button>
+        <div class="result" id="result"></div>
+    </div>
+
+
+    <div class="settings">
+            <div class="setting-group">
+                <label class="setting-label">Active Platform</label>
+                <div class="checkbox-group">
+                    <label class="checkbox">
+                        <input type="checkbox" id="facebook" checked> Facebook
+                    </label>
+                </div>
+            </div>
+        </div>     
+        <button class="settings-btn" id="saveSettings">Save Settings</button>
+    </div>
+</body>
+</html>

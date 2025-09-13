@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "Fake News Detector",
+  "version": "1.0.0",
+  "description": "AI-powered fake news detection for social media platforms",
+  
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  
+  "host_permissions": [
+    "*://*.facebook.com/*"
+  ],
+  
+  "background": {
+    "service_worker": "extension/scripts/background.js"
+  },
+  
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.facebook.com/*",
+        "*://*.x.com/*"
+      ],
+      "js": ["extension/scripts/content.js"],
+      "run_at": "document_end",
+      "all_frames": false
+    }
+  ],
+  
+  "action": {
+    "default_popup": "extension/html/popup.html",
+    "default_title": "Fake News Detector"
+  },
+  
+  "web_accessible_resources": [
+    {
+      "resources": ["extension/styles/*.css"],
+      "matches": ["*://*.facebook.com/*"]
+    }
+  ]
+}
