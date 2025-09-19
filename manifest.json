@@ -5,12 +5,17 @@
   "description": "AI-powered fake news detection for social media platforms",
   
   "permissions": [
+    "contextMenus",
     "storage",
+    "tabs",
     "activeTab"
+
   ],
   
   "host_permissions": [
-    "*://*.facebook.com/*"
+    "*://*.facebook.com/*",
+    "http://127.0.0.1/*"
+
   ],
   
   "background": {
@@ -28,16 +33,31 @@
       "all_frames": false
     }
   ],
+
+  "icons": {
+  "16": "extension/icons/detective-black.png",
+  "48": "extension/icons/detective-black.png",
+  "128": "extension/icons/detective-black.png"
+  },
   
   "action": {
     "default_popup": "extension/html/popup.html",
-    "default_title": "Fake News Detector"
+    "default_title": "Fake News Detector",
+    "default_icon": {
+      "16": "extension/icons/detective-black.png",
+      "48": "extension/icons/detective-black.png",
+      "128": "extension/icons/detective-black.png"
+    }
   },
   
   "web_accessible_resources": [
     {
       "resources": ["extension/styles/*.css"],
       "matches": ["*://*.facebook.com/*"]
-    }
+    },
+      {
+    "resources": ["extension/html/upload.html"],
+    "matches": ["<all_urls>"]
+  }
   ]
 }
