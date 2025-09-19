@@ -205,7 +205,10 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
-LICENSE
+
+####
 backend/trained_models
 __init__.py
 load.py
+debug_page.html
+LICENSE

@@ -9,6 +9,7 @@
 </head>
 <body>
     <div class="header">
+        <img src="/extension/icons/detective-white.png" alt="Detective character in white, wearing a hat and coat, looking thoughtful and focused, set against a clean background as part of the Fake News Detector extension header" class="logo">
         <div class="title">Fake News Detector</div>
     </div>
     
@@ -25,11 +26,12 @@
     </div>
 
     <div class="link-box">
+        <div class="result" id="result"></div>
         <input type="text" id="link-input" class="link-input" placeholder="Enter a link to check" />
         <button class="check-btn" id="check-btn">Check</button>
-        <div class="result" id="result"></div>
+        <a class="or">----------------- or -------------------</a>
+        <button id="open-uploader">Upload Image</button>
     </div>
-
 
     <div class="settings">
             <div class="setting-group">

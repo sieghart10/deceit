@@ -94,6 +94,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Setup event listeners
     function setupEventListeners() {
+
         // Toggle button click
         toggleButton.addEventListener('click', function() {
             extensionEnabled = !extensionEnabled;
@@ -123,6 +124,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 showFeedback('Settings Saved Successfully!');
             }
         });
+
+            // 👉 Upload button click to open full-page uploader
+        const uploadButton = document.getElementById("open-uploader");
+        if (uploadButton) {
+            uploadButton.addEventListener("click", () => {
+                chrome.tabs.create({
+                    url: chrome.runtime.getURL("extension/html/upload.html")
+                });
+            });
+        }
     }
     
     // Save settings to storage

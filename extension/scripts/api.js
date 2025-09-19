@@ -77,4 +77,13 @@ class API {
             return { online: false, error: error.message };
         }
     }
+
+    async predict(data) {
+        try {
+            console.log('data', data)
+        } catch (error) {
+            console.error('Error:', error.message)            
+        }
+
+    }
 }

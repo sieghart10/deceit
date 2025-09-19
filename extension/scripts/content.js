@@ -80,26 +80,22 @@ class FakeNewsDetector {
     }
 
     addVerifyButtons() {
-        const ellipsisMenus = document.querySelectorAll(
-            'div[aria-label="Actions for this post"]'
-        );
+        // Target the main post containers with class x1lliihq
+        const postContainers = document.querySelectorAll('.x1lliihq');
 
-        ellipsisMenus.forEach((menu) => {
-            const parent = menu.parentElement;
+        postContainers.forEach((container) => {
+            // Check if this container actually contains a post (has content)
+            const hasPostContent = container.querySelector('[data-ad-rendering-role="story_message"], [role="article"]');
+            
+            if (hasPostContent && !container.querySelector(".fake-news-verify-btn")) {
+                // Make sure the container has relative positioning for absolute positioning of button
+                const computedStyle = window.getComputedStyle(container);
+                if (computedStyle.position === 'static') {
+                    container.style.position = 'relative';
+                }
 
-            if (parent && !parent.querySelector(".fake-news-verify-btn")) {
-                parent.style.display = "flex";
-                parent.style.flexDirection = "column";
-                parent.style.alignItems = "flex-start";
-                parent.style.gap = "10px";
-
-                const button = this.createVerifyButton(parent);
-                parent.appendChild(button);
-
-                const target = document.querySelector(
-                    '[role="article"] div[dir="auto"]'
-                );
-                if (target) target.style.width = "300px";
+                const button = this.createVerifyButton(container);
+                container.appendChild(button);
             }
         });
     }
@@ -110,20 +106,37 @@ class FakeNewsDetector {
         button.innerHTML = `<span class="verify-icon">Verify</span>`;
 
         Object.assign(button.style, {
-            background: "linear-gradient(135deg, #A1DD70, #A23131)",
-            color: "white",
+            position: "absolute",
+            top: "15px",
+            right: "90px",
+            // background: "#A1DD70",
+            color: "black",
             border: "none",
-            borderRadius: "6px",
-            padding: "4px 10px",
+            borderRadius: "2px",
+            padding: "6px 12px",
             fontSize: "12px",
             fontWeight: "600",
             cursor: "pointer",
             display: "flex",
-            alignItems: "flex-start",
-            justifyContent: "left",
+            alignItems: "center",
+            justifyContent: "center",
             gap: "4px",
-            height: "28px",
-            width: "50px",
+            height: "32px",
+            minWidth: "60px",
+            zIndex: "1000",
+            // boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+            transition: "all 0.2s ease",
+        });
+
+        // Hover effects
+        button.addEventListener("mouseenter", () => {
+            button.style.transform = "scale(1.05)";
+            button.style.boxShadow = "0 4px 12px rgba(0,0,0,0.3)";
+        });
+
+        button.addEventListener("mouseleave", () => {
+            button.style.transform = "scale(1)";
+            button.style.boxShadow = "0 2px 8px rgba(0,0,0,0.2)";
         });
 
         button.addEventListener("click", (e) => {
@@ -138,16 +151,36 @@ class FakeNewsDetector {
     verifyContent(button, container) {
         button.disabled = true;
         button.style.opacity = "0.7";
-        button.textContent = "...";
+        button.textContent = "Analyzing...";
 
         const text = container.innerText || "";
 
-        
+        // Call the API server check first
+        this.sendApiMessage("checkServerStatus")
+            .then((status) => {
+                console.log("API server responded:", status);
 
-        setTimeout(() => {
-            const fake = this.detectFakeNews(text);
-            this.showResult(button, fake);
-        }, 2000);
+                // Continue with fake news detection
+                setTimeout(() => {
+                    const fake = this.detectFakeNews(text);
+                    this.showResult(button, fake);
+                    button.disabled = false;
+                    button.style.opacity = "1";
+                    button.textContent = "Verify";
+                }, 2000);
+            })
+            .catch((err) => {
+                console.error("API check failed:", err.message);
+
+                // Still fallback to local detection so button works
+                setTimeout(() => {
+                    const fake = this.detectFakeNews(text);
+                    this.showResult(button, fake);
+                    button.disabled = false;
+                    button.style.opacity = "1";
+                    button.textContent = "Verify";
+                }, 2000);
+            });
     }
 
     detectFakeNews(text) {
@@ -158,22 +191,56 @@ class FakeNewsDetector {
     }
 
     showResult(button, isFake) {
-        button.disabled = false;
-        button.style.opacity = "1";
+        const message = isFake ? "✗ Fake News Detected" : "✔ Real News";
+        const bgColor = isFake ? "#A23131" : "#4CAF50";
 
-        if (isFake) {
-            button.textContent = "Fake";
-            button.style.background = "#A23131";
-        } else {
-            button.textContent = "Real";
-            button.style.background = "#A1DD70";
-        }
-
+        this.showToast(message, bgColor);
+        
+        // Also update button appearance temporarily
+        const originalBg = button.style.background;
+        button.style.background = bgColor;
+        button.textContent = isFake ? "Fake" : "Real";
+        
         setTimeout(() => {
-            button.innerHTML = `<span class="verify-icon"></span><span class="verify-text">Verify</span>`;
-            button.style.background =
-                "linear-gradient(135deg, #A1DD70, #A23131)";
-        }, 4000);
+            button.style.background = originalBg;
+            button.textContent = "Verify";
+        }, 3000);
+    }
+
+    showToast(message, bgColor = "#333") {
+        let toast = document.createElement("div");
+        toast.textContent = message;
+        Object.assign(toast.style, {
+            position: "fixed",
+            bottom: "20px",
+            left: "20px",
+            background: bgColor,
+            color: "white",
+            padding: "10px 16px",
+            borderRadius: "6px",
+            fontSize: "13px",
+            fontWeight: "500",
+            zIndex: "9999",
+            opacity: "10%",
+            transition: "opacity 0.6s ease, transform 0.6s ease",
+            transform: "translateY(20px)",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.3)"
+        });
+
+        document.body.appendChild(toast);
+
+        // Trigger animation
+        requestAnimationFrame(() => {
+            toast.style.opacity = "1";
+            toast.style.transform = "translateY(0)";
+        });
+
+        // Auto remove after 3s
+        setTimeout(() => {
+            toast.style.opacity = "0";
+            toast.style.transform = "translateY(20px)";
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
     }
 
     setupObserver() {
@@ -181,7 +248,11 @@ class FakeNewsDetector {
 
         this.observer = new MutationObserver(() => {
             if (this.isExtensionEnabled && this.isFacebookEnabled) {
-                this.addVerifyButtons();
+                // Debounce the button addition to avoid too many calls
+                clearTimeout(this.observerTimeout);
+                this.observerTimeout = setTimeout(() => {
+                    this.addVerifyButtons();
+                }, 500);
             }
         });
 
@@ -191,7 +262,6 @@ class FakeNewsDetector {
         });
     }
 
-    // ✅ API call method is now inside the class
     sendApiMessage(action, payload = {}) {
         return new Promise((resolve, reject) => {
             chrome.runtime.sendMessage({ action, payload }, (response) => {
