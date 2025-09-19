@@ -208,3 +208,4 @@ __marimo__/
 LICENSE
 backend/trained_models
 __init__.py
+load.py
