@@ -1,5 +1,6 @@
 from collections import Counter
 from utils.tokenizer import tokenize
+from utils.ngram import tokenize_with_ngrams  # Import your n-gram tokenizer
 from utils.progress import show_progress
 import pandas as pd
 import math
@@ -7,8 +8,19 @@ import random
 import os
 import pickle
 
-def train_naive_bayes(documents, labels):
+RANDOM_SEED = 42
+
+def set_random_seeds(seed=42):
+    random.seed(seed)
+    print(f"Random seed set to: {seed}")
+
+def train_naive_bayes(documents, labels, use_ngrams=True, include_bigrams=True, include_trigrams=True):
     print("Training Naive Bayes classifier...")
+    if use_ngrams:
+        print(f"  Using n-grams: bigrams={include_bigrams}, trigrams={include_trigrams}")
+    else:
+        print("  Using unigrams only")
+    
     vocab_size = set()
     
     class_counter = {} # P(class) = number of docs in class / total docs
@@ -19,7 +31,12 @@ def train_naive_bayes(documents, labels):
     update_freq = max(1, total_docs // 100) if show_training_progress else total_docs
     
     for i, (doc, label) in enumerate(zip(documents, labels)):
-        tokens = tokenize(doc)
+        # Use n-gram tokenizer or regular tokenizer based on flag
+        if use_ngrams:
+            tokens = tokenize_with_ngrams(doc, include_bigrams=include_bigrams, include_trigrams=include_trigrams)
+        else:
+            tokens = tokenize(doc)
+        
         vocab_size.update(tokens)
         
         if label not in class_counter:
@@ -37,18 +54,31 @@ def train_naive_bayes(documents, labels):
     if show_training_progress:
         print(f"\n  ✓ Trained on {total_docs:,} documents")
     
-    return class_counter, class_word_counter, len(vocab_size)
+    # Store n-gram settings in the model
+    model_config = {
+        'use_ngrams': use_ngrams,
+        'include_bigrams': include_bigrams,
+        'include_trigrams': include_trigrams
+    }
+    
+    return class_counter, class_word_counter, len(vocab_size), model_config
 
-def predict(text, class_counts, class_word_counts, vocab_size, is_log=True):
-    # P(c∣ d) ∝ P(c) ⋅ P(d∣ c)
-    # log P(c∣ d) ∝ log P(c) + ∑ tokens​ log P(token∣ c)
-
-    tokens = tokenize(text)
+def predict(text, class_counts, class_word_counts, vocab_size, model_config, is_log=False):
+    # Use the same tokenization method as training
+    if model_config['use_ngrams']:
+        tokens = tokenize_with_ngrams(
+            text, 
+            include_bigrams=model_config['include_bigrams'],
+            include_trigrams=model_config['include_trigrams']
+        )
+    else:
+        tokens = tokenize(text)
+    
     total_docs = sum(class_counts.values())
     scores = {}
     
     if is_log:
-        print(f"Tokens: {tokens}")
+        print(f"Tokens (including n-grams): {tokens}...")
     
     for label in class_counts.keys():
         prob = math.log(class_counts[label] / total_docs)
@@ -61,8 +91,8 @@ def predict(text, class_counts, class_word_counts, vocab_size, is_log=True):
             
             # laplace smoothing
             likelihood = math.log((token_count + 1) / (total_tokens + vocab_size))
-            if is_log:
-                print(f"---> {token}: log({token_count + 1} / {total_tokens + vocab_size}) = {likelihood}")
+            if is_log and '_' in token:  # Show n-gram likelihoods
+                print(f"---> n-gram '{token}': log({token_count + 1} / {total_tokens + vocab_size}) = {likelihood}")
             
             prob += likelihood
         
@@ -123,7 +153,7 @@ def train_test_split(real_docs, fake_docs, test_ratio=0.2):
     print(f"  ✓ Split complete: {len(train_docs):,} train, {len(test_docs):,} test")
     return list(train_docs), list(train_labels), list(test_docs), list(test_labels)
 
-def evaluate_model(test_docs, test_labels, class_counts, class_word_counts, vocab_size):
+def evaluate_model(test_docs, test_labels, class_counts, class_word_counts, vocab_size, model_config):
     print("Evaluating model...")
     correct = 0
     total = len(test_docs)
@@ -132,7 +162,7 @@ def evaluate_model(test_docs, test_labels, class_counts, class_word_counts, voca
     
     predictions = []
     for i, (doc, true_label) in enumerate(zip(test_docs, test_labels)):
-        predicted_result = predict(doc, class_counts, class_word_counts, vocab_size, is_log=False)
+        predicted_result = predict(doc, class_counts, class_word_counts, vocab_size, model_config, is_log=False)
         predicted_label = predicted_result['prediction']
         
         predictions.append((doc[:50] + "...", true_label, predicted_result))
@@ -149,10 +179,10 @@ def evaluate_model(test_docs, test_labels, class_counts, class_word_counts, voca
     accuracy = correct / total if total > 0 else 0
     return accuracy, predictions
 
-def analyze_prediction(text, class_counts, class_word_counts, vocab_size):
+def analyze_prediction(text, class_counts, class_word_counts, vocab_size, model_config):
     print(f"Analyzing: '{text}'")
     print("=" * 50)
-    result = predict(text, class_counts, class_word_counts, vocab_size, is_log=True)
+    result = predict(text, class_counts, class_word_counts, vocab_size, model_config, is_log=True)
     
     print("=" * 50)
     print("PREDICTION SUMMARY:")
@@ -173,10 +203,7 @@ def analyze_prediction(text, class_counts, class_word_counts, vocab_size):
     
     return result
 
-VERSION = 1
-FILEPATH = f"bow_naive_bayes_model_v{VERSION}.pkl"
-
-def save_model(class_counts, class_word_counts, vocab_size, filepath):
+def save_model(class_counts, class_word_counts, vocab_size, model_config, filepath):
     print("Saving model...")
     save_dir = 'trained_models'
     os.makedirs(save_dir, exist_ok=True)
@@ -185,7 +212,8 @@ def save_model(class_counts, class_word_counts, vocab_size, filepath):
     model_data = {
         'class_counts': class_counts,
         'class_word_counts': class_word_counts,
-        'vocab_size': vocab_size
+        'vocab_size': vocab_size,
+        'model_config': model_config  # n-gram configuration
     }
     
     with open(full_path, 'wb') as f:
@@ -206,21 +234,120 @@ def load_model(filepath):
         model_data = pickle.load(f)
     
     print(f"  ✓ Model loaded from {full_path}")
-    return model_data['class_counts'], model_data['class_word_counts'], model_data['vocab_size']
+    
+    if 'model_config' not in model_data:
+        model_data['model_config'] = {
+            'use_ngrams': False,
+            'include_bigrams': True,
+            'include_trigrams': True
+        }
+    
+    return (model_data['class_counts'], 
+            model_data['class_word_counts'], 
+            model_data['vocab_size'],
+            model_data['model_config'])
+
+def compare_models(train_docs, train_labels, test_docs, test_labels):
+    """Compare different n-gram configurations"""
+    print("\n=== Model Comparison ===\n")
+    
+    configurations = [
+        (False, False, False, "Unigrams only"),
+        (True, True, False, "Unigrams + Bigrams"),
+        (True, False, True, "Unigrams + Trigrams"),
+        (True, True, True, "Unigrams + Bigrams + Trigrams")
+    ]
+    
+    results = []
+    
+    for i, (use_ngrams, include_bigrams, include_trigrams, name) in enumerate(configurations):
+        print(f"Training {name}...")
+        
+        class_counts, class_word_counts, vocab_size, model_config = train_naive_bayes(
+            train_docs, train_labels, 
+            use_ngrams=use_ngrams,
+            include_bigrams=include_bigrams,
+            include_trigrams=include_trigrams
+        )
+        
+        # Save model immediately after training
+        version_suffix = ""
+        if use_ngrams:
+            if include_bigrams and include_trigrams:
+                version_suffix = "_ngram_full"
+            elif include_bigrams:
+                version_suffix = "_bigram"
+            elif include_trigrams:
+                version_suffix = "_trigram"
+        else:
+            version_suffix = "_unigram"
+        
+        model_filename = f"bow_comparison_model_{i+1}{version_suffix}.pkl"
+        save_model(class_counts, class_word_counts, vocab_size, model_config, model_filename)
+        
+        accuracy, _ = evaluate_model(
+            test_docs, test_labels, 
+            class_counts, class_word_counts, vocab_size, model_config
+        )
+        
+        results.append({
+            'name': name,
+            'accuracy': accuracy,
+            'vocab_size': vocab_size,
+            'model_file': model_filename
+        })
+        
+        print(f"  Accuracy: {accuracy:.2%}")
+        print(f"  Vocabulary size: {vocab_size:,}")
+        print(f"  Model saved as: {model_filename}\n")
+    
+    print("\n=== Results Summary ===")
+    print(f"{'Configuration':<35} {'Accuracy':<12} {'Vocab Size':<12} {'Model File'}")
+    print("-" * 85)
+    for result in results:
+        # Fixed the formatting issue here
+        accuracy_str = f"{result['accuracy']:.2%}"
+        vocab_str = f"{result['vocab_size']:,}"
+        print(f"{result['name']:<35} {accuracy_str:<12} {vocab_str:<12} {result['model_file']}")
+    
+    best_model = max(results, key=lambda x: x['accuracy'])
+    print(f"\n✨ Best configuration: {best_model['name']} with {best_model['accuracy']:.2%} accuracy")
+    print(f"   Best model saved as: {best_model['model_file']}")
 
 if __name__ == "__main__":
+    set_random_seeds(RANDOM_SEED)
+    
+    # Configuration flags
     TRAIN = False
+    COMPARE_MODELS = False  # Set to True to compare different n-gram configurations
+    USE_NGRAMS = True  # For single model training
+    INCLUDE_BIGRAMS = True
+    INCLUDE_TRIGRAMS = True
+    
+    # Version tracking based on configuration
+    version_suffix = ""
+    if USE_NGRAMS:
+        if INCLUDE_BIGRAMS and INCLUDE_TRIGRAMS:
+            version_suffix = "_ngram_full"
+        elif INCLUDE_BIGRAMS:
+            version_suffix = "_bigram"
+        elif INCLUDE_TRIGRAMS:
+            version_suffix = "_trigram"
+    
+    VERSION = 4
+    FILEPATH = f"bow_comparison_model_{VERSION}{version_suffix}.pkl"
 
-    # df_real = pd.read_csv("data/articles.csv")
+    # Load data
+    df_real = pd.read_csv("data/articles.csv")
     df_real2 = pd.read_csv("data/inquirer-articles.csv")
-    # df_fake = pd.read_csv("data/rappler_articles.csv")
+    df_fake = pd.read_csv("data/rappler_articles.csv")
     df_fake2 = pd.read_csv("data/breakingnews-articles-new.csv")
 
-    # df_real = pd.concat([df_real, df_real2], ignore_index=True)
-    # df_fake = pd.concat([df_fake, df_fake2], ignore_index=True)
+    df_real = pd.concat([df_real, df_real2], ignore_index=True)
+    df_fake = pd.concat([df_fake, df_fake2], ignore_index=True)
     
-    real_documents = list(zip(df_real2['content'], ['real'] * len(df_real2)))
-    fake_documents = list(zip(df_fake2['content'], ['fake'] * len(df_fake2)))
+    real_documents = list(zip(df_real['content'], ['real'] * len(df_real)))
+    fake_documents = list(zip(df_fake['content'], ['fake'] * len(df_fake)))
     print(f"  ✓ Loaded {len(real_documents):,} real and {len(fake_documents):,} fake articles")
     
     print(f"\n=== Fake News Detection Using Bag of Words + Naive Bayes ===\n")
@@ -231,20 +358,24 @@ if __name__ == "__main__":
     print(f"Train label distribution: {Counter(train_labels)}")
     print(f"Test label distribution: {Counter(test_labels)}")
     
-    if TRAIN:
-        class_counts, class_word_counts, vocab_size = train_naive_bayes(train_docs, train_labels)
-        save_model(class_counts, class_word_counts, vocab_size, FILEPATH)
+    if COMPARE_MODELS:
+        compare_models(train_docs, train_labels, test_docs, test_labels)
+    
+    elif TRAIN:
+        class_counts, class_word_counts, vocab_size, model_config = train_naive_bayes(
+            train_docs, train_labels,
+            use_ngrams=USE_NGRAMS,
+            include_bigrams=INCLUDE_BIGRAMS,
+            include_trigrams=INCLUDE_TRIGRAMS
+        )
+        save_model(class_counts, class_word_counts, vocab_size, model_config, FILEPATH)
         
         print(f"Vocabulary size: {vocab_size:,}")
         print(f"Class distribution: {class_counts}\n")
-
-        model = load_model(FILEPATH)
-        if model:
-            class_counts, class_word_counts, vocab_size = model
         
         print("=== Model Evaluation ===")
         accuracy, predictions = evaluate_model(
-            test_docs, test_labels, class_counts, class_word_counts, vocab_size
+            test_docs, test_labels, class_counts, class_word_counts, vocab_size, model_config
         )
         
         print(f"Accuracy: {accuracy:.2%}\n")
@@ -255,30 +386,27 @@ if __name__ == "__main__":
             status = "✓" if true_label == predicted_label else "✗"
             confidence = predicted_result['confidence']
             print(f"{status} '{doc_preview}' | True: {true_label} | Predicted: {predicted_label} ({confidence:.1%})")
-    else:          
+    else:
+        # Load existing model
         model = load_model(FILEPATH)
         if model:
-            class_counts, class_word_counts, vocab_size = model  
+            class_counts, class_word_counts, vocab_size, model_config = model
             
             print(f"Vocabulary size: {vocab_size:,}")
-            print(f"Class distribution: {class_counts}\n")
+            print(f"Class distribution: {class_counts}")
+            print(f"Model configuration: {model_config}\n")
             
-            EVALUATE = True  # set False to skip evaluation
+            EVALUATE = False
             if EVALUATE:
                 accuracy, predictions = evaluate_model(
-                    test_docs, test_labels, class_counts, class_word_counts, vocab_size
+                    test_docs, test_labels, class_counts, class_word_counts, vocab_size, model_config
                 )
                 print(f"Accuracy: {accuracy:.2%}\n")
     
     # Testing with detailed analysis
     print("\n=== Detailed Prediction Example ===")
     # test_text = "A Chinese warship announced live fire exercises in waters some 90 nautical miles from the Zambales coastline yesterday morning, forcing Philippine Coast Guard vessels and dozens of Filipino fishing boats caught inside the designated danger zone to leave the area."
-    # test_text = "A post shows a photo of Kabataan Representative Renee Co and embattled Ako Bicol Representative Zaldy Co, implying that they are close relatives."
-    test_text = ""
-    prediction = analyze_prediction(test_text, class_counts, class_word_counts, vocab_size)
-
-    # print("Individual predictions:")
-    # for doc_preview, true_label, predicted_result in predictions:
-    #     predicted_label = predicted_result['prediction']
-    #     status = "âœ“" if true_label == predicted_label else "âœ—"
-    #     print(f"{status} '{doc_preview}' | True: {true_label} | Predicted: {predicted_result}")
+    # test_text = "The International Criminal Court (ICC) has officially dismissed the crimes against humanity case against former president Rodrigo Duterte."
+    test_text = "A post shows a photo of Kabataan Representative Renee Co and embattled Ako Bicol Representative Zaldy Co, implying that they are close relatives."
+    if 'model_config' in locals():
+        prediction = analyze_prediction(test_text, class_counts, class_word_counts, vocab_size, model_config)

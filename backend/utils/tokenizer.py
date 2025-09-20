@@ -49,21 +49,28 @@ def tag_negation(tokens):
     
     return updated
 
-# STOP_WORDS = [
-#     "the", "and", "is", "in", "of", "to", "a", "an", "on", "for", "with",
-#     "that", "this", "it", "as", "at", "by", "from", "be", "or", "but", 
-#     "are", "was", "were", "been", "has", "had", "have", "do", "does", 
-#     "did", "not", "so", "if", "then", "than", "because", "while", "when",
-#     "where", "which", "who", "whom", "what", "why", "how", "can", "could",
-#     "should", "would", "may", "might", "must", "will", "shall"
-# ]
-STOP_WORDS = ["the", "be", "to", "of", "and", "a", "in", "that", "have", "i", "is", "which", "at", "on", "it"]
+STOP_WORDS = [
+    "the", "i", "and", "is", "in", "of", "to", "a", "an", "on", "for", "with",
+    "that", "this", "it", "as", "at", "by", "from", "be", "or", "but", 
+    "are", "was", "were", "been", "has", "had", "have", "do", "does", 
+    "did", "so", "if", "then", "than", "because", "while", "when",
+    "where", "which", "who", "whom", "what", "why", "how", "can", "could",
+    "should", "would", "may", "might", "must", "will", "shall"
+]
+
+# STOP_WORDS = ["the", "be", "to", "of", "and", "a", "in", "that", "have", "i", "is", "which", "at", "on", "it"]
+
+def protect_stopwords(text, exceptions):
+    for phrase in exceptions:
+        protected = phrase.replace(" ", "_")
+        text = re.sub(rf"\b{re.escape(phrase)}\b", protected, text, flags=re.IGNORECASE)
+    return text
+
 
 def tokenize(text, special_tokens=False, remove_stopwords=True, use_lemmatization=True):
     tokens = re.sub(r"http\S+|www\.\S+", "", text)
     tokens = expand_contraction(tokens)
-    tokens = re.split("[- ]", tokens)
-    tokens = re.findall(r"\w+|[.!?,;:]", text)
+    tokens = re.findall(r"\w+|[.!?,;:]", tokens)
 
     if use_lemmatization:
         tokens = [lemmatize(token) for token in tokens]
@@ -71,11 +78,12 @@ def tokenize(text, special_tokens=False, remove_stopwords=True, use_lemmatizatio
     tokens = tag_negation(tokens)
 
     if remove_stopwords:
-        tokens = [t for t in tokens if normalize(t) not in STOP_WORDS]
+        tokens = [t for t in tokens if normalize(t) not in STOP_WORDS and normalize(t)]
 
     if special_tokens:
         tokens = ["<s>"] + list(map(normalize, tokens)) + ["</s>"]
 
     tokens = [token for token in tokens if token.strip()]
 
+    # print(tokens)
     return tokens

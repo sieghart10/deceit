@@ -148,7 +148,7 @@ def predict(text, class_counts, class_word_counts, vocab_size, idf_values, is_lo
     # calculate TF for query document
     tf = calculate_tf(tokens)
     query_tfidf = {term: tf[term] * idf_values.get(term, 0) for term in tf}
-    print(query_tfidf)
+    # print(query_tfidf)
     for label in class_counts.keys():
         prob = math.log(class_counts[label] / total_docs)
         
