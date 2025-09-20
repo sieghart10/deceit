@@ -3,7 +3,7 @@ News detector that checks if news or posts are real or fake using Bag and Naive 
 
 <p align="left" >
   <img src="https://res.cloudinary.com/dvr0evn7t/image/upload/v1758382660/Screenshot_2025-09-20_233709_euo13s.png" alt="Fake News Detector" width="300" height= "400"/>
-  <img src="https://res.cloudinary.com/dvr0evn7t/image/upload/v1758382428/Screenshot_2025-09-20_233253_fygoea.png" alt="TypeCast" width="300" height= "400"/>
+  <img src="https://res.cloudinary.com/dvr0evn7t/image/upload/v1758382428/Screenshot_2025-09-20_233253_fygoea.png" alt="TypeCast" width="300" height= "600"/>
 
 </p>
 
