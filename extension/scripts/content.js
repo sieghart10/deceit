@@ -171,11 +171,11 @@ class FakeNewsDetector {
             position: "absolute",
             top: "15px",
             right: "90px",
-            background: "#A1DD70",
+            background: "#e5e5e5ff",
             color: "black",
-            border: "none",
-            borderRadius: "2px",
-            padding: "6px 12px",
+            border: "2px solid #5d5d5dff",
+            borderRadius: "8px",
+            padding: "5px 10px",
             fontSize: "12px",
             fontWeight: "600",
             cursor: "pointer",
@@ -186,7 +186,6 @@ class FakeNewsDetector {
             height: "32px",
             minWidth: "60px",
             zIndex: "1000",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
             transition: "all 0.2s ease",
         });
 
@@ -212,7 +211,7 @@ class FakeNewsDetector {
 
     async verifyContent(button, container) {
         button.disabled = true;
-        button.style.opacity = "0.7";
+        button.style.opacity = "1";
         button.textContent = "Analyzing...";
 
         try {
@@ -260,7 +259,7 @@ class FakeNewsDetector {
     }
 
     showResult(button, isFake, message) {
-        const bgColor = isFake ? "#A23131" : "#4CAF50";
+        const bgColor = isFake ? "#f44336" : "#4CAF50";
 
         this.showToast(message, bgColor);
         
@@ -282,17 +281,18 @@ class FakeNewsDetector {
             position: "fixed",
             bottom: "20px",
             left: "20px",
+            border: "2px solid #5d5d5dff",
             background: bgColor,
             color: "white",
             padding: "10px 16px",
-            borderRadius: "6px",
-            fontSize: "13px",
+            borderRadius: "8px",
+            fontSize: "15px",
             fontWeight: "500",
             zIndex: "9999",
             opacity: "0",
             transition: "opacity 0.6s ease, transform 0.6s ease",
             transform: "translateY(20px)",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.3)"
+            // boxShadow: "0 4px 12px rgba(0,0,0,0.3)"
         });
 
         document.body.appendChild(toast);
