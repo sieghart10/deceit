@@ -132,7 +132,7 @@ body {
   font-family: var(--font);
   transition: 0.3s ease;
   background: #ececec;
-  color: var(--text-color);
+  color: var(--color-card);
 }
 
 .link-input:focus {

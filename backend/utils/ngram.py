@@ -7,7 +7,7 @@ def generate_ngrams_for_tfidf(tokens, n=2):
         ngrams.append(ngram)
     return ngrams
 
-def tokenize_with_ngrams(text, include_bigrams=True, include_trigrams=False):
+def tokenize_with_ngrams(text, include_bigrams=True, include_trigrams=True):
     tokens = tokenize(text)
     
     # combined feature list

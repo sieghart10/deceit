@@ -1,7 +1,7 @@
 from collections import Counter
 from utils.tokenizer import tokenize
-from utils.ngram import tokenize_with_ngrams
 from utils.progress import show_progress
+from utils.matrix import create_bow_matrix
 import pandas as pd
 import math
 import random
@@ -25,10 +25,10 @@ def calculate_tf(doc_tokens):
     
     return tf
 
-def calculate_idf_with_ngrams(documents, use_log=True, include_bigrams=True, include_trigrams=False):
-    N = len(documents)
+def calculate_idf(documents, use_log=True):
+    N = len(documents) # num of docs
     idf = {}
-    all_features = set()
+    all_tokens = set()
     
     print(f"Tokenizing {N:,} documents...")
     tokenized_docs = []
@@ -36,43 +36,43 @@ def calculate_idf_with_ngrams(documents, use_log=True, include_bigrams=True, inc
     update_freq = max(1, N // 100) if show_progress_flag else N
 
     for i, doc in enumerate(documents):
-        features = tokenize_with_ngrams(doc, include_bigrams, include_trigrams)
-        tokenized_docs.append(features)
-        all_features.update(features)
+        tokens = tokenize(doc)
+        tokenized_docs.append(tokens)
+        all_tokens.update(tokens)
 
         if show_progress_flag and (i % update_freq == 0 or i == N - 1):
             show_progress(i + 1, N, "Tokenizing documents")
         
     if show_progress_flag:
-        print(f"\n  ✓ Tokenized {N:,} documents, found {len(all_features):,} unique features")
+        print(f"\n  ✓ Tokenized {N:,} documents, found {len(all_tokens):,} unique features")
 
     print("Calculating IDF values...")
-    feature_count = 0
-    total_features = len(all_features)
-    show_idf_progress = total_features > 1000
-    update_freq_idf = max(1, total_features // 100) if show_idf_progress else total_features
+    token_count = 0
+    total_tokens = len(all_tokens)
+    show_idf_progress = total_tokens > 1000
+    update_freq_idf = max(1, total_tokens // 100) if show_idf_progress else total_tokens
 
-    for feature in all_features:
-        docs_with_feature = sum(1 for features in tokenized_docs if feature in features)
+    for term in all_tokens:
+        docs_with_term = sum(1 for tokens in tokenized_docs if term in tokens)
         
         if use_log:
-            idf[feature] = math.log(N / docs_with_feature)
-            # idf[feature] = math.log((N + 1) / (docs_with_feature + 1))
+            idf[term] = math.log((N + 1) / (docs_with_term + 1))
         else:
-            idf[feature] = N / docs_with_feature
+            idf[term] = (N + 1) / (docs_with_term + 1)
     
-        feature_count += 1
+        token_count += 1
 
-        if show_idf_progress and (feature_count % update_freq_idf == 0 or feature_count == total_features):
-            show_progress(feature_count, total_features, "Calculating IDF")
+        if show_idf_progress and (token_count % update_freq_idf == 0 or token_count == total_tokens):
+            show_progress(token_count, total_tokens, "Calculating IDF")
 
     if show_idf_progress:
-        print(f"\n  ✓ Calculated IDF for {total_features:,} features")
+        print(f"\n  ✓ Calculated IDF for {total_tokens:,} features")
 
     return idf, tokenized_docs
 
-def calculate_tfidf_with_ngrams(documents, include_bigrams=True, include_trigrams=False):
-    idf_values, tokenized_docs = calculate_idf_with_ngrams(documents, use_log=True, include_bigrams=include_bigrams, include_trigrams=include_trigrams)
+def calculate_tfidf(documents):
+    # calculate IDF
+    idf_values, tokenized_docs = calculate_idf(documents)
     
     print("Calculating TF-IDF matrix...")
     tfidf_matrix = []
@@ -80,12 +80,14 @@ def calculate_tfidf_with_ngrams(documents, include_bigrams=True, include_trigram
     show_tfidf_progress = doc_count > 100
     update_freq = max(1, doc_count // 100) if show_tfidf_progress else doc_count
     
-    for i, features in enumerate(tokenized_docs):
-        tf = calculate_tf(features)
+    for i, tokens in enumerate(tokenized_docs):
+        # calculate TF for this document
+        tf = calculate_tf(tokens)
         
+        # calculate TF-IDF for each term
         doc_tfidf = {}
-        for feature in tf:
-            doc_tfidf[feature] = tf[feature] * idf_values.get(feature, 0)
+        for term in tf:
+            doc_tfidf[term] = tf[term] * idf_values.get(term, 0)
         
         tfidf_matrix.append(doc_tfidf)
     
@@ -97,18 +99,14 @@ def calculate_tfidf_with_ngrams(documents, include_bigrams=True, include_trigram
     
     return tfidf_matrix, idf_values
 
-def train_naive_bayes_tfidf_ngram(documents, labels, include_bigrams=False, include_trigrams=False):
+def train_naive_bayes_tfidf(documents, labels):
     print("Training TF-IDF Naive Bayes Model")
-
     vocab_size = set()
-    
     class_counter = {}
     class_word_counter = {}
     
-    # calculate TF-IDF with n-grams
-    tfidf_matrix, idf_values = calculate_tfidf_with_ngrams(
-        documents, include_bigrams=include_bigrams, include_trigrams=include_trigrams
-    )
+    # calculate TF-IDF for all documents
+    tfidf_matrix, idf_values = calculate_tfidf(documents)
 
     print("Training Naive Bayes classifier...")
     total_docs = len(documents)
@@ -116,8 +114,8 @@ def train_naive_bayes_tfidf_ngram(documents, labels, include_bigrams=False, incl
     update_freq = max(1, total_docs // 100) if show_training_progress else total_docs
     
     for i, (doc, label) in enumerate(zip(documents, labels)):
-        features = tokenize_with_ngrams(doc, include_bigrams, include_trigrams)
-        vocab_size.update(features)
+        tokens = tokenize(doc)
+        vocab_size.update(tokens)
         
         if label not in class_counter:
             class_counter[label] = 0
@@ -125,10 +123,11 @@ def train_naive_bayes_tfidf_ngram(documents, labels, include_bigrams=False, incl
         
         class_counter[label] += 1
         
+        # TF-IDF weights
         doc_tfidf = tfidf_matrix[i]
-        for feature in features:
-            weight = doc_tfidf.get(feature, 0)
-            class_word_counter[label][feature] = class_word_counter[label].get(feature, 0) + weight
+        for token in tokens:
+            weight = doc_tfidf.get(token, 0)
+            class_word_counter[label][token] = class_word_counter[label].get(token, 0) + weight
 
         if show_training_progress and (i % update_freq == 0 or i == total_docs - 1):
             show_progress(i + 1, total_docs, "Training classifier")
@@ -138,28 +137,35 @@ def train_naive_bayes_tfidf_ngram(documents, labels, include_bigrams=False, incl
 
     return class_counter, class_word_counter, len(vocab_size), idf_values
 
-def predict(text, class_counts, class_word_counts, vocab_size, idf_values, include_bigrams=True, include_trigrams=False, is_log=False):
-    features = tokenize_with_ngrams(text, include_bigrams, include_trigrams)
+def predict(text, class_counts, class_word_counts, vocab_size, idf_values, is_log=False):
+    tokens = tokenize(text)
     total_docs = sum(class_counts.values())
     scores = {}
     
     if is_log:
-        print(f"Features (with n-grams): {features[:10]}...")  # onnly show first 10
+        print(f"Tokens: {tokens}")
     
-    # calculate TF for query document with n-grams
-    tf = calculate_tf(features)
-    query_tfidf = {feature: tf[feature] * idf_values.get(feature, 0) for feature in tf}
-    
+    # calculate TF for query document
+    tf = calculate_tf(tokens)
+    query_tfidf = {term: tf[term] * idf_values.get(term, 0) for term in tf}
+    print(query_tfidf)
     for label in class_counts.keys():
         prob = math.log(class_counts[label] / total_docs)
         
-        for feature in features:
-            feature_weight = class_word_counts[label].get(feature, 0)
+        if is_log:
+            print(f"--> logprior({label}): log({class_counts[label]} / {total_docs}) = {prob}")
+
+        for token in tokens:
+            token_weight = class_word_counts[label].get(token, 0)
             total_weight = sum(class_word_counts[label].values())
-            query_weight = query_tfidf.get(feature, 0)
+            query_weight = query_tfidf.get(token, 0)
             
-            likelihood = math.log((feature_weight + 1) / (total_weight + vocab_size)) * query_weight
-            # likelihood = math.log((feature_weight + 1) / (total_weight + vocab_size))
+            # likelihood = math.log((token_weight + 1) / (total_weight + vocab_size))
+            likelihood = math.log((token_weight + 1) / (total_weight + vocab_size)) * query_weight
+            
+            if is_log:
+                print(f"---> {token}: {likelihood}")
+
             prob += likelihood
         
         scores[label] = prob
@@ -211,7 +217,7 @@ def train_test_split(real_docs, fake_docs, test_ratio=0.2):
     print(f"  ✓ Split complete: {len(train_docs):,} train, {len(test_docs):,} test")
     return list(train_docs), list(train_labels), list(test_docs), list(test_labels)
 
-def evaluate_model(test_docs, test_labels, class_counts, class_word_counts, vocab_size, idf_values, include_bigrams, include_trigrams):
+def evaluate_model(test_docs, test_labels, class_counts, class_word_counts, vocab_size, idf_values):
     print("Evaluating model...")
     score = 0
     total = len(test_docs)
@@ -220,7 +226,7 @@ def evaluate_model(test_docs, test_labels, class_counts, class_word_counts, voca
     
     predictions = []
     for i, (doc, true_label) in enumerate(zip(test_docs, test_labels)):
-        predicted_result = predict(doc, class_counts, class_word_counts, vocab_size, idf_values, include_bigrams, include_trigrams, is_log=False)
+        predicted_result = predict(doc, class_counts, class_word_counts, vocab_size, idf_values)
         predicted_label = predicted_result['prediction']
         predictions.append((doc[:50] + "...", true_label, predicted_result))
         
@@ -236,7 +242,29 @@ def evaluate_model(test_docs, test_labels, class_counts, class_word_counts, voca
     accuracy = score / total if total > 0 else 0
     return accuracy, predictions
 
-FILEPATH = 'tf_idf_naive_bayes_model.pkl'
+def analyze_prediction(text, class_counts, class_word_counts, vocab_size, idf_values, is_log=True):
+    prediction = predict(text, class_counts, class_word_counts, vocab_size, idf_values, is_log)
+
+    print("PREDICTION SUMMARY:")
+    print(f"Predicted Class: {prediction['prediction'].upper()}")
+    print(f"Confidence: {prediction['confidence']:.1%}")
+    print(f"Score Difference: {prediction['score_difference']:.3f}")
+    print("\nClass Probabilities:")
+    for label, prob in prediction['probabilities'].items():
+        print(f"  {label}: {prob:.1%}")
+
+    print("\nInterpretation:")
+    if prediction['confidence'] > 0.8:
+        print("🟢 High confidence prediction")
+    elif prediction['confidence'] > 0.6:
+        print("🟡 Medium confidence prediction")
+    else:
+        print("🔴 Low confidence prediction - consider manual review")
+
+    return prediction
+
+VERSON = 1
+FILEPATH = f'tf_idf_naive_bayes_model_v{VERSON}.pkl'
 
 def save_model(class_counts, class_word_counts, vocab_size, idf_values, filepath):
     print("Saving model...")
@@ -277,82 +305,60 @@ def load_model(filepath):
             idf_values)
 
 if __name__ == "__main__":
-    # set_random_seeds(RANDOM_SEED)
+    set_random_seeds(RANDOM_SEED)
     TRAIN = False
-
+    
     df_real = pd.read_csv("data/articles.csv")
+    df_real2 = pd.read_csv("data/inquirer-articles.csv")
     df_fake = pd.read_csv("data/rappler_articles.csv")
+    df_fake2 = pd.read_csv("data/breakingnews-articles-new.csv")
+
+    df_real = pd.concat([df_real, df_real2], ignore_index=True)
+    df_fake = pd.concat([df_fake, df_fake2], ignore_index=True)
     
     real_documents = list(zip(df_real['content'], ['real'] * len(df_real)))
     fake_documents = list(zip(df_fake['content'], ['fake'] * len(df_fake)))
     print(f"  ✓ Loaded {len(real_documents):,} real and {len(fake_documents):,} fake articles")
-
-    # # print("=== Bag of Words Matrix (First 5 documents) ===")
-    # # bow_matrix = create_bow_matrix(sample_documents[:5], sample_labels[:5])
-    # # print(bow_matrix)
-    # # print(f"Matrix shape: {bow_matrix.shape}\n")
     
-    # print(f"=== Fake News Detection Using TF-IDF + Naive Bayes ===\n")
+    print(f"=== Fake News Detection Using TF-IDF + Naive Bayes ===\n")
     
-    # # Train-test split
     train_docs, train_labels, test_docs, test_labels = train_test_split(real_documents, fake_documents, test_ratio=0.2)
     print(f"Train label distribution: {Counter(train_labels)}")
     print(f"Test label distribution: {Counter(test_labels)}")
     
+    # print("\n=== Bag of Words Matrix (First 5 documents) ===")
+    # bow_matrix = create_bow_matrix(train_docs[:10], train_labels[:10])
+    # print(bow_matrix)
+    # print(f"Matrix shape: {bow_matrix.shape}\n")
+
+    text = "post shows a photo of Kabataan Representative Renee Co and embattled Ako Bicol Representative Zaldy Co, implying that they are close relatives"
+    # text = "The Department of Education (DepEd) has directed all regional and division offices to submit detailed reports on uncompleted or “ghost” school buildings, stressing accountability in infrastructure projects and the need to ensure safe classrooms for learners. In a memorandum dated September 12, 2025, Assistant Secretary for Human Resource and Organizational Development and Education Facilities Division Aurelio Paulo R. Bartolome reminded field offices of their duty to uphold transparency following recent findings of irregularities in school construction. Regional directors, schools division superintendents, district supervisors, and DepEd engineers were specifically tasked to identify and report anomalous cases such as prolonged stoppage of construction, incomplete delivery, or structural defects."
     if TRAIN:
-        print("Training with TF-IDF + bigrams...")
-        class_counts, class_word_counts, vocab_size, idf_values = train_naive_bayes_tfidf_ngram(
-            train_docs, train_labels, include_bigrams=False, include_trigrams=False
-        )
+        class_counts, class_word_counts, vocab_size, idf_values = train_naive_bayes_tfidf(train_docs, train_labels)
         save_model(class_counts, class_word_counts, vocab_size, idf_values, FILEPATH)
 
         print(f"Class distribution: {class_counts}")
         
-        # print(f"Vocabulary size: {vocab_size}")
-        print(f"Vocabulary size (with n-grams): {vocab_size}")
+        print(f"Vocabulary size: {vocab_size}")
         print(f"Class distribution: {class_counts}\n")
 
-        # Test the classifier
         print("=== Model Evaluation ===")
-        accuracy, predictions = evaluate_model(test_docs, test_labels, class_counts, class_word_counts, vocab_size, idf_values, include_bigrams=False, include_trigrams=False)
+        accuracy, predictions = evaluate_model(test_docs, test_labels, class_counts, class_word_counts, vocab_size, idf_values)
         print(f"Accuracy: {accuracy:.2%}\n")
         
-        # Testing with detailed analysis
         print("=== Testing Example ===")
-        example_text = "A Chinese warship announced live fire exercises in waters some 90 nautical miles from the Zambales coastline yesterday morning, forcing Philippine Coast Guard vessels and dozens of Filipino fishing boats caught inside the designated danger zone to leave the area."
-        
-        prediction = predict(example_text, class_counts, class_word_counts, 
-                               vocab_size, idf_values, include_bigrams=False, 
-                               include_trigrams=False, is_log=True)
-        
-        print("=" * 50)
-        print("PREDICTION SUMMARY:")
-        print(f"Predicted Class: {prediction['prediction'].upper()}")
-        print(f"Confidence: {prediction['confidence']:.1%}")
-        print(f"Score Difference: {prediction['score_difference']:.3f}")
-        print("\nClass Probabilities:")
-        for label, prob in prediction['probabilities'].items():
-            print(f"  {label}: {prob:.1%}")
-    
-    model = load_model(FILEPATH)
-    if model:
-        EVALUATE=False
-        class_counts, class_word_counts, vocab_size, idf_values = model
-
-        test_text = "A Chinese warship announced live fire exercises in waters some 90 nautical miles from the Zambales coastline yesterday morning, forcing Philippine Coast Guard vessels and dozens of Filipino fishing boats caught inside the designated danger zone to leave the area."
-        print()
-        prediction = predict(test_text, class_counts, class_word_counts, vocab_size, idf_values, include_bigrams=False, include_trigrams=False, is_log=True)
+        prediction = analyze_prediction(text, class_counts, class_word_counts, vocab_size, idf_values)
         print(prediction)
 
-        if EVALUATE:
-            accuracy, predictions = evaluate_model(test_docs, test_labels, class_counts, class_word_counts, vocab_size, idf_values, include_bigrams=True, include_trigrams=False)
-            print(f"Accuracy: {accuracy:.2%}")
-        
-        print("=" * 50)
-        print("PREDICTION SUMMARY:")
-        print(f"Predicted Class: {prediction['prediction'].upper()}")
-        print(f"Confidence: {prediction['confidence']:.1%}")
-        print(f"Score Difference: {prediction['score_difference']:.3f}")
-        print("\nClass Probabilities:")
-        for label, prob in prediction['probabilities'].items():
-            print(f"  {label}: {prob:.1%}")
+    else:
+        model = load_model(FILEPATH)
+        if model:
+            EVALUATE=False
+            class_counts, class_word_counts, vocab_size, idf_values = model
+            prediction = analyze_prediction(text, class_counts, class_word_counts, vocab_size, idf_values, is_log=True)
+            print(prediction)
+
+            if EVALUATE:
+                accuracy, predictions = evaluate_model(test_docs, test_labels, class_counts, class_word_counts, vocab_size, idf_values)
+                print(f"Accuracy: {accuracy:.2%}")
+            

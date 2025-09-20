@@ -57,7 +57,7 @@ def tag_negation(tokens):
 #     "where", "which", "who", "whom", "what", "why", "how", "can", "could",
 #     "should", "would", "may", "might", "must", "will", "shall"
 # ]
-STOP_WORDS = ["the", "be", "to", "of", "and", "a", "in", "that", "have", "i", "is", "which", "at", "on"]
+STOP_WORDS = ["the", "be", "to", "of", "and", "a", "in", "that", "have", "i", "is", "which", "at", "on", "it"]
 
 def tokenize(text, special_tokens=False, remove_stopwords=True, use_lemmatization=True):
     tokens = re.sub(r"http\S+|www\.\S+", "", text)

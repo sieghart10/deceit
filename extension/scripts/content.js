@@ -43,6 +43,68 @@ class FakeNewsDetector {
                 }
             }
         });
+
+        // Listen for messages from background script
+        chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+            this.handleMessage(message, sender, sendResponse);
+            return true; // Keep message channel open for async responses
+        });
+    }
+
+    handleMessage(message, sender, sendResponse) {
+        try {
+            switch (message.action) {
+                case 'ping':
+                    sendResponse({ status: 'pong' });
+                    break;
+                    
+                case 'textVerificationResult':
+                    this.handleVerificationResult('text', message.result, message.text);
+                    sendResponse({ success: true });
+                    break;
+                    
+                case 'imageVerificationResult':
+                    this.handleVerificationResult('image', message.result, message.imageUrl);
+                    sendResponse({ success: true });
+                    break;
+                    
+                case 'linkVerificationResult':
+                    this.handleVerificationResult('link', message.result, message.url);
+                    sendResponse({ success: true });
+                    break;
+                    
+                default:
+                    sendResponse({ success: false, error: 'Unknown action' });
+            }
+        } catch (error) {
+            console.error('Error handling message:', error);
+            sendResponse({ success: false, error: error.message });
+        }
+    }
+
+    handleVerificationResult(type, result, content) {
+        if (result.success && result.data) {
+            const data = result.data;
+            const isFake = data.prediction === 'fake';
+            const confidence = (data.confidence * 100).toFixed(1);
+            
+            let message;
+            switch (type) {
+                case 'text':
+                    message = isFake ? "⚠️ Selected text may be fake news" : "✓ Selected text appears to be real news";
+                    break;
+                case 'image':
+                    message = isFake ? "⚠️ Image text may be fake news" : "✓ Image text appears to be real news";
+                    break;
+                case 'link':
+                    message = isFake ? "⚠️ Linked article may be fake news" : "✓ Linked article appears to be real news";
+                    break;
+            }
+            
+            this.showToast(`${message} (${confidence}% confidence)`, isFake ? "#A23131" : "#4CAF50");
+        } else {
+            this.showToast(`Verification failed: ${result.error || 'Unknown error'}`, "#ff9800");
+        }
     }
 
     async loadSettings() {
@@ -109,7 +171,7 @@ class FakeNewsDetector {
             position: "absolute",
             top: "15px",
             right: "90px",
-            // background: "#A1DD70",
+            background: "#A1DD70",
             color: "black",
             border: "none",
             borderRadius: "2px",
@@ -124,7 +186,7 @@ class FakeNewsDetector {
             height: "32px",
             minWidth: "60px",
             zIndex: "1000",
-            // boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
             transition: "all 0.2s ease",
         });
 
@@ -148,39 +210,46 @@ class FakeNewsDetector {
         return button;
     }
 
-    verifyContent(button, container) {
+    async verifyContent(button, container) {
         button.disabled = true;
         button.style.opacity = "0.7";
         button.textContent = "Analyzing...";
 
-        const text = container.innerText || "";
+        try {
+            const text = container.innerText || "";
+            
+            // First check server status
+            const status = await this.sendApiMessage("checkServerStatus");
+            console.log("API server responded:", status);
 
-        // Call the API server check first
-        this.sendApiMessage("checkServerStatus")
-            .then((status) => {
-                console.log("API server responded:", status);
-
-                // Continue with fake news detection
-                setTimeout(() => {
-                    const fake = this.detectFakeNews(text);
-                    this.showResult(button, fake);
-                    button.disabled = false;
-                    button.style.opacity = "1";
-                    button.textContent = "Verify";
-                }, 2000);
-            })
-            .catch((err) => {
-                console.error("API check failed:", err.message);
-
-                // Still fallback to local detection so button works
-                setTimeout(() => {
-                    const fake = this.detectFakeNews(text);
-                    this.showResult(button, fake);
-                    button.disabled = false;
-                    button.style.opacity = "1";
-                    button.textContent = "Verify";
-                }, 2000);
-            });
+            // Try to make actual prediction via API
+            try {
+                const result = await this.sendApiMessage("verifyText", { text: text });
+                
+                if (result.success && result.data) {
+                    const data = result.data;
+                    const isFake = data.prediction === 'fake';
+                    const confidence = (data.confidence * 100).toFixed(1);
+                    
+                    this.showResult(button, isFake, `${data.message} (${confidence}% confidence)`);
+                } else {
+                    throw new Error(result.error || "API verification failed");
+                }
+            } catch (apiError) {
+                console.log("API verification failed, using fallback:", apiError.message);
+                // Fallback to local detection
+                const fake = this.detectFakeNews(text);
+                this.showResult(button, fake, "Local detection (API unavailable)");
+            }
+            
+        } catch (error) {
+            console.error("Verification error:", error);
+            this.showResult(button, false, "Verification failed: " + error.message);
+        } finally {
+            button.disabled = false;
+            button.style.opacity = "1";
+            button.textContent = "Verify";
+        }
     }
 
     detectFakeNews(text) {
@@ -190,8 +259,7 @@ class FakeNewsDetector {
         );
     }
 
-    showResult(button, isFake) {
-        const message = isFake ? "✗ Fake News Detected" : "✔ Real News";
+    showResult(button, isFake, message) {
         const bgColor = isFake ? "#A23131" : "#4CAF50";
 
         this.showToast(message, bgColor);
@@ -221,7 +289,7 @@ class FakeNewsDetector {
             fontSize: "13px",
             fontWeight: "500",
             zIndex: "9999",
-            opacity: "10%",
+            opacity: "0",
             transition: "opacity 0.6s ease, transform 0.6s ease",
             transform: "translateY(20px)",
             boxShadow: "0 4px 12px rgba(0,0,0,0.3)"
@@ -262,19 +330,19 @@ class FakeNewsDetector {
         });
     }
 
-    sendApiMessage(action, payload = {}) {
+    sendApiMessage(action, data = {}) {
         return new Promise((resolve, reject) => {
-            chrome.runtime.sendMessage({ action, payload }, (response) => {
+            const message = { action, ...data };
+            
+            chrome.runtime.sendMessage(message, (response) => {
                 if (chrome.runtime.lastError) {
-                    return reject(
-                        new Error(chrome.runtime.lastError.message)
-                    );
+                    return reject(new Error(chrome.runtime.lastError.message));
                 }
                 if (!response) {
                     return reject(new Error("No response from background"));
                 }
                 if (response.success) {
-                    resolve(response.data);
+                    resolve(response);
                 } else {
                     reject(new Error(response.error || "Unknown error"));
                 }
