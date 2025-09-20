@@ -11,13 +11,11 @@ document.addEventListener('DOMContentLoaded', async function() {
     const checkButton = document.getElementById('check-btn');
     const resultElement = document.getElementById('result');
 
-    // State variables
     let extensionEnabled = true;
     let facebookEnabled = true;
     let currentTab = null;
     let serverStatus = { online: false, checking: false };
     
-    // Initialize popup
     async function initializePopup() {
         try {
             await loadSettings();
@@ -30,7 +28,6 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     }
     
-    // Load settings from storage
     function loadSettings() {
         return new Promise((resolve) => {
             chrome.storage.sync.get(['extensionEnabled', 'facebookEnabled'], function(result) {
@@ -43,7 +40,6 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
     }
 
-    // Get current tab information
     function getCurrentTab() {
         return new Promise((resolve) => {
             chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
@@ -125,7 +121,6 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     }
     
-    // Update current site display
     function updateCurrentSite() {
         if (!currentTab) {
             currentSiteElement.textContent = 'Unknown';
@@ -136,7 +131,6 @@ document.addEventListener('DOMContentLoaded', async function() {
             const url = new URL(currentTab.url);
             const hostname = url.hostname;
             
-            // Check if it's Facebook and extension is enabled for it
             if (hostname.includes('facebook.com')) {
                 if (facebookEnabled && extensionEnabled) {
                     currentSiteElement.textContent = 'www.facebook.com';
@@ -155,9 +149,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     }
     
-    // Update UI elements
     function updateUI() {
-        // Update extension status
         if (extensionEnabled) {
             statusTextElement.textContent = 'Active';
             statusTextElement.style.color = '#27ae60';
@@ -170,14 +162,11 @@ document.addEventListener('DOMContentLoaded', async function() {
             toggleButton.className = 'toggle-btn disabled';
         }
         
-        // Update Facebook checkbox
         facebookCheckbox.checked = facebookEnabled;
         
-        // Update current site display
         updateCurrentSite();
     }
     
-    // Check link function
     async function checkLink() {
         const url = linkInput.value.trim();
         
@@ -191,7 +180,6 @@ document.addEventListener('DOMContentLoaded', async function() {
             return;
         }
         
-        // Disable button and show loading
         checkButton.disabled = true;
         checkButton.textContent = 'Checking...';
         showResult('Analyzing...', 'loading');
@@ -224,7 +212,6 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     }
     
-    // Show result in the result element
     function showResult(message, type = 'info') {
         if (!resultElement) return;
         
@@ -261,37 +248,30 @@ document.addEventListener('DOMContentLoaded', async function() {
         resultElement.style.fontWeight = '500';
     }
     
-    // Setup event listeners
     function setupEventListeners() {
 
-        // Toggle button click
         toggleButton.addEventListener('click', async function() {
             extensionEnabled = !extensionEnabled;
             await saveSettings();
             updateUI();
             
-            // Show feedback
             showFeedback(extensionEnabled ? 'Extension Enabled' : 'Extension Disabled');
         });
         
-        // Facebook checkbox change
         facebookCheckbox.addEventListener('change', function() {
             facebookEnabled = this.checked;
             updateCurrentSite(); // Update immediately for visual feedback
         });
         
-        // Save button click
         saveButton.addEventListener('click', async function() {
             await saveSettings();
             showFeedback('Settings Saved Successfully!');
         });
         
-        // Check button click
         if (checkButton) {
             checkButton.addEventListener('click', checkLink);
         }
         
-        // Enter key on link input
         if (linkInput) {
             linkInput.addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') {
@@ -300,7 +280,6 @@ document.addEventListener('DOMContentLoaded', async function() {
             });
         }
         
-        // Save button enter key
         saveButton.addEventListener('keypress', async function(e) {
             if (e.key === 'Enter') {
                 await saveSettings();
@@ -308,7 +287,6 @@ document.addEventListener('DOMContentLoaded', async function() {
             }
         });
 
-        // Upload button click to open full-page uploader
         const uploadButton = document.getElementById("open-uploader");
         if (uploadButton) {
             uploadButton.addEventListener("click", () => {
@@ -318,7 +296,6 @@ document.addEventListener('DOMContentLoaded', async function() {
             });
         }
         
-        // Server status refresh button (add this to your HTML if needed)
         const refreshServerButton = document.getElementById('refresh-server');
         if (refreshServerButton) {
             refreshServerButton.addEventListener('click', async function() {
@@ -327,7 +304,6 @@ document.addEventListener('DOMContentLoaded', async function() {
             });
         }
         
-        // Add server status click to refresh
         if (statusTextElement) {
             statusTextElement.addEventListener('click', async function() {
                 await checkServerConnection();
@@ -337,7 +313,6 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     }
     
-    // Save settings to storage
     function saveSettings() {
         return new Promise((resolve, reject) => {
             const settings = {
@@ -353,13 +328,11 @@ document.addEventListener('DOMContentLoaded', async function() {
                 } else {
                     console.log('Settings saved successfully');
                     
-                    // Notify content scripts about the change
                     if (currentTab && currentTab.id) {
                         chrome.tabs.sendMessage(currentTab.id, {
                             action: 'settingsChanged',
                             settings: settings
                         }, function() {
-                            // Ignore errors if content script isn't loaded
                             if (chrome.runtime.lastError) {
                                 console.log('Content script not available:', chrome.runtime.lastError.message);
                             }
@@ -371,20 +344,16 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
     }
     
-    // Show feedback message
     function showFeedback(message, type = 'success') {
-        // Remove existing feedback
         const existingFeedback = document.querySelector('.feedback-message');
         if (existingFeedback) {
             existingFeedback.remove();
         }
         
-        // Create feedback element
         const feedback = document.createElement('div');
         feedback.className = `feedback-message ${type}`;
         feedback.textContent = message;
         
-        // Style the feedback
         Object.assign(feedback.style, {
             position: 'fixed',
             top: '10px',
@@ -401,7 +370,6 @@ document.addEventListener('DOMContentLoaded', async function() {
             boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
         });
         
-        // Add CSS animation if not exists
         if (!document.querySelector('#feedback-style')) {
             const style = document.createElement('style');
             style.id = 'feedback-style';
@@ -416,10 +384,8 @@ document.addEventListener('DOMContentLoaded', async function() {
             document.head.appendChild(style);
         }
         
-        // Add to DOM
         document.body.appendChild(feedback);
         
-        // Remove after animation
         setTimeout(() => {
             if (feedback.parentNode) {
                 feedback.remove();
@@ -427,7 +393,6 @@ document.addEventListener('DOMContentLoaded', async function() {
         }, 2500);
     }
     
-    // Handle keyboard navigation
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
             window.close();
@@ -444,7 +409,6 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     });
     
-    // Handle extension updates
     chrome.storage.onChanged.addListener(function(changes, namespace) {
         if (namespace === 'sync') {
             if (changes.extensionEnabled) {
@@ -461,12 +425,9 @@ document.addEventListener('DOMContentLoaded', async function() {
         await checkServerConnection();
     }, 300000);
     
-    // Initialize everything when DOM is ready
     await initializePopup();
     
-    // Add some interactive effects
     function addInteractiveEffects() {
-        // Add hover effects to buttons
         const buttons = document.querySelectorAll('button');
         buttons.forEach(button => {
             button.addEventListener('mouseenter', function() {
@@ -478,7 +439,6 @@ document.addEventListener('DOMContentLoaded', async function() {
             });
         });
         
-        // Add click animation
         document.addEventListener('click', function(e) {
             if (e.target.tagName === 'BUTTON') {
                 e.target.style.transform = 'translateY(0) scale(0.98)';
@@ -489,6 +449,5 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
     }
     
-    // Add effects after initialization
     setTimeout(addInteractiveEffects, 100);
 });

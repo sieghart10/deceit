@@ -104,26 +104,36 @@ class API {
                 throw new Error('No data provided for prediction');
             }
             
-            // Determine which endpoint to use based on data type
+            // determine which endpoint to use based on data type
             let endpoint = '/predict';
             let requestBody = data;
             
             if (data.type === 'image') {
                 endpoint = '/predict/image';
-                // FIX: Make sure the structure matches ImagePredictRequest exactly
-                requestBody = {};
+                // ensure the structure matches ImagePredictRequest exactly
+                requestBody = {
+                    type: 'image'
+                };
+                
                 if (data.imageUrl) {
                     requestBody.imageUrl = data.imageUrl;
                 }
                 if (data.imageData) {
                     requestBody.imageData = data.imageData;
                 }
-                requestBody.type = 'image';
+                // add source information for images
+                if (data.source_url) {
+                    requestBody.source_url = data.source_url;
+                }
+                if (data.page_title) {
+                    requestBody.page_title = data.page_title;
+                }
                 
                 console.log('Image request body structure:', {
                     hasImageUrl: !!requestBody.imageUrl,
                     hasImageData: !!requestBody.imageData,
                     imageDataLength: requestBody.imageData ? requestBody.imageData.length : 0,
+                    hasSourceUrl: !!requestBody.source_url,
                     type: requestBody.type
                 });
                 
@@ -136,15 +146,36 @@ class API {
                     text: data.text,
                     imageUrl: data.imageUrl
                 };
+                // add source URL for Facebook posts
+                if (data.source_url) {
+                    requestBody.source_url = data.source_url;
+                }
             } else {
-                // Default text prediction
+                // default text prediction - include source information
                 requestBody = {
                     text: data.text || data,
                     type: 'text'
                 };
+                
+                // add source information if available
+                if (data.source_url) {
+                    requestBody.source_url = data.source_url;
+                }
+                if (data.page_title) {
+                    requestBody.page_title = data.page_title;
+                }
             }
             
-            console.log(`Sending ${requestBody.type || 'text'} request to ${endpoint}:`, Object.keys(requestBody));
+            console.log(`Sending ${requestBody.type || 'text'} request to ${endpoint}:`, {
+                ...Object.keys(requestBody).reduce((acc, key) => {
+                    if (key === 'imageData') {
+                        acc[key] = requestBody[key] ? `[Base64 data: ${requestBody[key].length} chars]` : null;
+                    } else {
+                        acc[key] = requestBody[key];
+                    }
+                    return acc;
+                }, {})
+            });
             
             const result = await this.call(endpoint, {
                 method: 'POST',
@@ -160,7 +191,7 @@ class API {
         }
     }
 
-    async verifyText(text) {
+    async verifyText(text, sourceUrl = null, pageTitle = null) {
         try {
             console.log('Verifying text:', text.substring(0, 100) + '...');
             
@@ -168,11 +199,20 @@ class API {
                 throw new Error('Invalid text provided for verification');
             }
             
-            const result = await this.predict({ 
+            const requestData = { 
                 text: text.trim(),
                 type: 'text'
-            });
+            };
             
+            // add source information if provided
+            if (sourceUrl) {
+                requestData.source_url = sourceUrl;
+            }
+            if (pageTitle) {
+                requestData.page_title = pageTitle;
+            }
+            
+            const result = await this.predict(requestData);
             return result;
             
         } catch (error) {
@@ -181,7 +221,7 @@ class API {
         }
     }
 
-    async verifyImage(imageUrl, imageData = null) {
+    async verifyImage(imageUrl, imageData = null, sourceUrl = null, pageTitle = null) {
         try {
             console.log('Verifying image:', imageUrl ? imageUrl.substring(0, 50) + '...' : 'Base64 data provided');
             
@@ -189,18 +229,25 @@ class API {
                 throw new Error('No image provided for verification');
             }
             
-            // Create the request body
             const requestBody = {
                 type: 'image'
             };
             
-            // Add image data or URL
+            // add image data or URL
             if (imageData) {
                 requestBody.imageData = imageData;
                 console.log('Sending base64 image data to API');
             } else if (imageUrl) {
                 requestBody.imageUrl = imageUrl.trim();
                 console.log('Sending image URL to API');
+            }
+            
+            // add source information if provided
+            if (sourceUrl) {
+                requestBody.source_url = sourceUrl;
+            }
+            if (pageTitle) {
+                requestBody.page_title = pageTitle;
             }
             
             const result = await this.call('/predict/image', {
@@ -238,7 +285,7 @@ class API {
         }
     }
 
-    async verifyFacebookPost(postText, imageUrl = null) {
+    async verifyFacebookPost(postText, imageUrl = null, sourceUrl = null) {
         try {
             console.log('Verifying Facebook post');
             
@@ -246,12 +293,18 @@ class API {
                 throw new Error('No content provided for verification');
             }
             
-            const result = await this.predict({ 
+            const requestData = { 
                 text: postText ? postText.trim() : '',
                 imageUrl: imageUrl ? imageUrl.trim() : null,
                 type: 'facebook'
-            });
+            };
             
+            // add source URL for Facebook posts
+            if (sourceUrl) {
+                requestData.source_url = sourceUrl;
+            }
+            
+            const result = await this.predict(requestData);
             return result;
             
         } catch (error) {
@@ -296,7 +349,36 @@ class API {
         }
     }
 
-    // Helper function to convert image file to base64
+    async getSourceInfo() {
+        try {
+            console.log('Fetching source information...');
+            const data = await this.call('/sources');
+            return { success: true, data };
+        } catch (error) {
+            console.error('Failed to fetch source info:', error.message);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async scoreSource(url, title = '', content = '') {
+        try {
+            console.log('Scoring source:', url);
+            const data = await this.call('/sources/score', {
+                method: 'POST',
+                body: JSON.stringify({
+                    url: url,
+                    title: title,
+                    content: content
+                })
+            });
+            return { success: true, data };
+        } catch (error) {
+            console.error('Failed to score source:', error.message);
+            return { success: false, error: error.message };
+        }
+    }
+
+    // convert image file to base64
     async fileToBase64(file) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
@@ -306,11 +388,11 @@ class API {
         });
     }
 
-    // Helper function to verify an image file
-    async verifyImageFile(file) {
+    // verify an image file
+    async verifyImageFile(file, sourceUrl = null, pageTitle = null) {
         try {
             const base64Data = await this.fileToBase64(file);
-            return await this.verifyImage(null, base64Data);
+            return await this.verifyImage(null, base64Data, sourceUrl, pageTitle);
         } catch (error) {
             console.error('Image file verification error:', error.message);
             return { success: false, error: error.message };
@@ -318,7 +400,7 @@ class API {
     }
 }
 
-// Export for use in other scripts if needed
+// export for use in other scripts
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = API;
 }

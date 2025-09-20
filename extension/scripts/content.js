@@ -5,16 +5,19 @@ class FakeNewsDetector {
         this.isFacebookEnabled = true;
         this.isFacebook = window.location.hostname.includes("facebook.com");
         this.observer = null;
+        this.currentUrl = window.location.href;
+        this.pageTitle = document.title;
 
         this.initialize();
     }
 
     async initialize() {
         console.log("Content script loaded: Fake News Detector");
+        console.log(`Current URL: ${this.currentUrl}`);
+        console.log(`Page Title: ${this.pageTitle}`);
 
         await this.loadSettings();
 
-        // Initialize API connection (via background)
         try {
             const status = await this.sendApiMessage("checkServerStatus");
             console.log("API server status:", status);
@@ -26,7 +29,7 @@ class FakeNewsDetector {
             this.initializeDetector();
         }
 
-        // Watch for settings changes
+        // watch for settings changes
         chrome.storage.onChanged.addListener((changes, namespace) => {
             if (namespace === "sync") {
                 if (changes.extensionEnabled) {
@@ -44,11 +47,34 @@ class FakeNewsDetector {
             }
         });
 
-        // Listen for messages from background script
+        // listen for messages from background script
         chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             this.handleMessage(message, sender, sendResponse);
-            return true; // Keep message channel open for async responses
+            return true; // keep message channel open for async responses
         });
+
+        // watch for URL changes
+        this.watchUrlChanges();
+    }
+
+    watchUrlChanges() {
+        let currentUrl = window.location.href;
+        
+        const observer = new MutationObserver(() => {
+            if (window.location.href !== currentUrl) {
+                currentUrl = window.location.href;
+                this.currentUrl = currentUrl;
+                this.pageTitle = document.title;
+                console.log(`URL changed to: ${this.currentUrl}`);
+                
+                // if still on Facebook
+                if (this.isFacebook && this.isExtensionEnabled && this.isFacebookEnabled) {
+                    setTimeout(() => this.addVerifyButtons(), 1000);
+                }
+            }
+        });
+        
+        observer.observe(document, { subtree: true, childList: true });
     }
 
     handleMessage(message, sender, sendResponse) {
@@ -91,17 +117,31 @@ class FakeNewsDetector {
             let message;
             switch (type) {
                 case 'text':
-                    message = isFake ? "⚠️ Selected text may be fake news" : "✓ Selected text appears to be real news";
+                    message = isFake ? "⚠️ Selected text may be fake news" : "✅ Selected text appears to be real news";
                     break;
                 case 'image':
-                    message = isFake ? "⚠️ Image text may be fake news" : "✓ Image text appears to be real news";
+                    message = isFake ? "⚠️ Image text may be fake news" : "✅ Image text appears to be real news";
                     break;
                 case 'link':
-                    message = isFake ? "⚠️ Linked article may be fake news" : "✓ Linked article appears to be real news";
+                    message = isFake ? "⚠️ Linked article may be fake news" : "✅ Linked article appears to be real news";
                     break;
             }
             
-            this.showToast(`${message} (${confidence}% confidence)`, isFake ? "#A23131" : "#4CAF50");
+            message += ` (${confidence}% confidence)`;
+            
+            // add source information if available
+            if (data.source_info) {
+                const sourceInfo = data.source_info;
+                message += `\nSource: ${sourceInfo.domain} (${sourceInfo.confidence_level} reliability)`;
+                
+                // show confidence explanation
+                if (data.confidence_explanation && data.original_confidence && 
+                    Math.abs(data.confidence - data.original_confidence) > 0.05) {
+                    message += `\n${data.confidence_explanation}`;
+                }
+            }
+            
+            this.showToast(message, isFake ? "#A23131" : "#4CAF50");
         } else {
             this.showToast(`Verification failed: ${result.error || 'Unknown error'}`, "#ff9800");
         }
@@ -142,15 +182,14 @@ class FakeNewsDetector {
     }
 
     addVerifyButtons() {
-        // Target the main post containers with class x1lliihq
+        // main post containers with class `x1lliihq`
         const postContainers = document.querySelectorAll('.x1lliihq');
 
         postContainers.forEach((container) => {
-            // Check if this container actually contains a post (has content)
+            // check if this container have content
             const hasPostContent = container.querySelector('[data-ad-rendering-role="story_message"], [role="article"]');
             
             if (hasPostContent && !container.querySelector(".fake-news-verify-btn")) {
-                // Make sure the container has relative positioning for absolute positioning of button
                 const computedStyle = window.getComputedStyle(container);
                 if (computedStyle.position === 'static') {
                     container.style.position = 'relative';
@@ -216,28 +255,72 @@ class FakeNewsDetector {
         button.textContent = "Analyzing...";
 
         try {
-            const text = container.innerText || "";
+            const text = this.getPostText(container);
             
-            // First check server status
+            // extract any images from the post
+            const images = container.querySelectorAll('img');
+            let imageUrl = null;
+            
+            // find image (not profile pics, icons, etc.)
+            for (const img of images) {
+                if (img.src && !img.src.includes('profile') && !img.src.includes('emoji') && 
+                    img.width > 100 && img.height > 100) {
+                    imageUrl = img.src;
+                    break;
+                }
+            }
+            
             const status = await this.sendApiMessage("checkServerStatus");
             console.log("API server responded:", status);
 
-            // Try to make actual prediction via API
             try {
-                const result = await this.sendApiMessage("verifyText", { text: text });
+                let result;
+                
+                if (imageUrl && text) {
+                    // if have both text and image
+                    result = await this.sendApiMessage("verifyFacebookPost", { 
+                        text: text,
+                        imageUrl: imageUrl,
+                        source_url: this.currentUrl,
+                        page_title: this.pageTitle
+                    });
+                } else if (text) {
+                    // text only
+                    result = await this.sendApiMessage("verifyText", { 
+                        text: text,
+                        source_url: this.currentUrl,
+                        page_title: this.pageTitle
+                    });
+                } else {
+                    throw new Error("No content found to verify");
+                }
                 
                 if (result.success && result.data) {
                     const data = result.data;
                     const isFake = data.prediction === 'fake';
                     const confidence = (data.confidence * 100).toFixed(1);
                     
-                    this.showResult(button, isFake, `${data.message} (${confidence}% confidence)`);
+                    let message = `${data.message}`;
+                    
+                    // add source information if available
+                    if (data.source_info) {
+                        const sourceInfo = data.source_info;
+                        message += `\nSource: ${sourceInfo.domain} (${sourceInfo.confidence_level} reliability)`;
+                        
+                        // show confidence change
+                        if (data.original_confidence && Math.abs(data.confidence - data.original_confidence) > 0.05) {
+                            const change = data.confidence > data.original_confidence ? "boosted" : "reduced";
+                            message += `\nConfidence ${change} based on source reliability`;
+                        }
+                    }
+                    
+                    this.showResult(button, isFake, message);
                 } else {
                     throw new Error(result.error || "API verification failed");
                 }
             } catch (apiError) {
                 console.log("API verification failed, using fallback:", apiError.message);
-                // Fallback to local detection
+                // local detection
                 const fake = this.detectFakeNews(text);
                 this.showResult(button, fake, "Local detection (API unavailable)");
             }
@@ -252,6 +335,23 @@ class FakeNewsDetector {
         }
     }
 
+    // helper: get main post text
+    getPostText(container) {
+        const messageNode = container.querySelector('[data-ad-rendering-role="story_message"]') 
+                        || container.querySelector('div[role="article"]');
+        
+        if (!messageNode) return "";
+
+        let text = "";
+        const spans = messageNode.querySelectorAll("span[dir='auto']");
+        for (let span of spans) {
+            if (span.innerText && span.innerText.trim().length > 20) { 
+                text += span.innerText.trim() + " ";
+            }
+        }
+        return text.trim();
+    }
+
     detectFakeNews(text) {
         const fakeKeywords = ["breaking", "shocking", "miracle cure", "secret"];
         return fakeKeywords.some((word) =>
@@ -264,7 +364,6 @@ class FakeNewsDetector {
 
         this.showToast(message, bgColor);
         
-        // Also update button appearance temporarily
         const originalBg = button.style.background;
         button.style.background = bgColor;
         button.textContent = isFake ? "Fake" : "Real";
@@ -277,38 +376,40 @@ class FakeNewsDetector {
 
     showToast(message, bgColor = "#333") {
         let toast = document.createElement("div");
-        toast.textContent = message;
+        toast.innerHTML = message.replace(/\n/g, '<br>'); // line breaks
         Object.assign(toast.style, {
             position: "fixed",
             bottom: "20px",
             left: "20px",
             background: bgColor,
             color: "white",
-            padding: "10px 16px",
-            borderRadius: "6px",
+            padding: "12px 18px",
+            borderRadius: "8px",
             fontSize: "13px",
             fontWeight: "500",
+            lineHeight: "1.4",
             zIndex: "9999",
             opacity: "0",
             transition: "opacity 0.6s ease, transform 0.6s ease",
             transform: "translateY(20px)",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.3)"
+            boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+            maxWidth: "350px",
+            wordWrap: "break-word"
         });
 
         document.body.appendChild(toast);
 
-        // Trigger animation
         requestAnimationFrame(() => {
             toast.style.opacity = "1";
             toast.style.transform = "translateY(0)";
         });
 
-        // Auto remove after 3s
+        // remove after 5s
         setTimeout(() => {
             toast.style.opacity = "0";
             toast.style.transform = "translateY(20px)";
             setTimeout(() => toast.remove(), 300);
-        }, 3000);
+        }, 5000);
     }
 
     setupObserver() {
@@ -316,7 +417,7 @@ class FakeNewsDetector {
 
         this.observer = new MutationObserver(() => {
             if (this.isExtensionEnabled && this.isFacebookEnabled) {
-                // Debounce the button addition to avoid too many calls
+                // debouncer
                 clearTimeout(this.observerTimeout);
                 this.observerTimeout = setTimeout(() => {
                     this.addVerifyButtons();
@@ -332,7 +433,14 @@ class FakeNewsDetector {
 
     sendApiMessage(action, data = {}) {
         return new Promise((resolve, reject) => {
-            const message = { action, ...data };
+            // include current page information
+            const message = { 
+                action, 
+                ...data,
+                // ensure source information is passed along
+                current_url: this.currentUrl,
+                page_title: this.pageTitle
+            };
             
             chrome.runtime.sendMessage(message, (response) => {
                 if (chrome.runtime.lastError) {

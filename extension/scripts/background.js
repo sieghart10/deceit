@@ -1,9 +1,8 @@
-// Import API script
 importScripts("api.js");
 
 const api = new API("http://127.0.0.1:8000");
 
-// Helper function to download image and convert to base64
+// download image and convert to base64
 async function downloadImageAsBase64(imageUrl) {
   try {
     const response = await fetch(imageUrl);
@@ -24,7 +23,23 @@ async function downloadImageAsBase64(imageUrl) {
   }
 }
 
-// Helper function to check if content script is available
+// get page title from tab
+async function getPageTitle(tabId) {
+  return new Promise((resolve) => {
+    chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      function: () => document.title
+    }, (results) => {
+      if (chrome.runtime.lastError || !results || !results[0]) {
+        resolve("Unknown Title");
+      } else {
+        resolve(results[0].result);
+      }
+    });
+  });
+}
+
+// check if content script is available
 async function isContentScriptAvailable(tabId) {
   return new Promise((resolve) => {
     chrome.tabs.sendMessage(tabId, { action: 'ping' }, (response) => {
@@ -37,7 +52,7 @@ async function isContentScriptAvailable(tabId) {
   });
 }
 
-// Helper function to inject content script if needed
+// inject content script if needed
 async function ensureContentScript(tabId) {
   try {
     const isAvailable = await isContentScriptAvailable(tabId);
@@ -46,7 +61,7 @@ async function ensureContentScript(tabId) {
         target: { tabId: tabId },
         files: ['extension/scripts/content.js']
       });
-      // Wait a bit for the script to initialize
+      // wait for the script to initialize
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     return true;
@@ -71,7 +86,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
       switch (request.action) {
         case "ping":
-          // Simple ping response for content script availability check
           result = { status: "pong" };
           break;
 
@@ -84,7 +98,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           if (!request.text) {
             throw new Error("No text provided for verification");
           }
-          result = await api.verifyText(request.text);
+          
+          // get source URL and page title from the tab
+          let sourceUrl = null;
+          let pageTitle = null;
+          
+          if (sender.tab) {
+            sourceUrl = sender.tab.url;
+            pageTitle = sender.tab.title || await getPageTitle(sender.tab.id);
+          }
+          
+          // create request with source information
+          const textRequest = {
+            text: request.text,
+            type: 'text',
+            source_url: sourceUrl,
+            page_title: pageTitle
+          };
+          
+          result = await api.predict(textRequest);
           break;
 
         case "verifyImage":
@@ -92,27 +124,56 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           if (!request.imageUrl && !request.imageData) {
             throw new Error("No image provided for verification");
           }
-          // If we have a URL but no base64 data, try to download and convert it
+          
+          // get source URL and page title
+          let imageSourceUrl = null;
+          let imagePageTitle = null;
+          
+          if (sender.tab) {
+            imageSourceUrl = sender.tab.url;
+            imagePageTitle = sender.tab.title || await getPageTitle(sender.tab.id);
+          }
+          
+          // if URL but no base64 data, try to download and convert it
           if (request.imageUrl && !request.imageData) {
             try {
               const base64Data = await downloadImageAsBase64(request.imageUrl);
-              // Send the base64 data to the API instead of URL
-              result = await api.verifyImage(null, base64Data);
+              
+              // Create enhanced request with source information
+              const imageRequest = {
+                type: 'image',
+                imageData: base64Data,
+                source_url: imageSourceUrl,
+                page_title: imagePageTitle
+              };
+              
+              result = await api.predict(imageRequest);
               
             } catch (downloadError) {
               console.error('Failed to download image for verification:', downloadError);
-              // Fallback to trying with just the URL
-              result = await api.verifyImage(request.imageUrl, null);
               
+              // just the URL
+              const fallbackRequest = {
+                type: 'image',
+                imageUrl: request.imageUrl,
+                source_url: imageSourceUrl,
+                page_title: imagePageTitle
+              };
+              
+              result = await api.predict(fallbackRequest);
             }
           } else {
-            result = await api.verifyImage(request.imageUrl, request.imageData);
-          }
-          console.log("Request data structure:", JSON.stringify({
+            // create request with source information
+            const imageRequest = {
+              type: 'image',
               imageUrl: request.imageUrl,
-              hasImageData: !!request.imageData,
-              imageDataLength: request.imageData ? request.imageData.length : 0
-          }));
+              imageData: request.imageData,
+              source_url: imageSourceUrl,
+              page_title: imagePageTitle
+            };
+            
+            result = await api.predict(imageRequest);
+          }
           break;
 
         case "verifyLink":
@@ -128,7 +189,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           if (!request.text && !request.imageUrl) {
             throw new Error("No content provided for Facebook post verification");
           }
-          result = await api.verifyFacebookPost(request.text, request.imageUrl);
+          
+          // add source URL for Facebook posts
+          let facebookSourceUrl = null;
+          if (sender.tab && sender.tab.url) {
+            facebookSourceUrl = sender.tab.url;
+          }
+          
+          const apiResult = await api.verifyFacebookPost(request.text, request.imageUrl, facebookSourceUrl);
+          
+          // console.log("=== FACEBOOK API RESULT ===");
+          // console.log(JSON.stringify(apiResult, null, 2));
+          
+          if (apiResult.success && apiResult.data) {
+            result = apiResult.data;
+          } else {
+            result = apiResult;
+          }
           break;
 
         case "predict":
@@ -136,6 +213,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           if (!request.data) {
             throw new Error("No data provided for prediction");
           }
+          
+          // add source information if not present
+          if (sender.tab && !request.data.source_url) {
+            request.data.source_url = sender.tab.url;
+            request.data.page_title = sender.tab.title || await getPageTitle(sender.tab.id);
+          }
+          
           result = await api.predict(request.data);
           break;
 
@@ -168,7 +252,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   return true; // keeps message channel open for async
 });
 
-// Create context menu
+// create context menu
 chrome.contextMenus.create({
   id: "textMenu",
   title: "Verify selected text: '%s'",
@@ -187,15 +271,23 @@ chrome.contextMenus.create({
   contexts: ["link"],
 });
 
-// Handle context menu clicks
+// handle context menu clicks
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   try {
     if (info.menuItemId === "textMenu" && info.selectionText) {
       console.log("Selected text to verify:", info.selectionText);
       
-      const result = await api.verifyText(info.selectionText);
+      // create request with source information
+      const textRequest = {
+        text: info.selectionText,
+        type: 'text',
+        source_url: tab ? tab.url : null,
+        page_title: tab ? tab.title : null
+      };
       
-      // Try to send message to content script, but don't fail if it's not available
+      const result = await api.predict(textRequest);
+      
+      // send message to content script, don't fail if not available
       if (tab && tab.id) {
         const contentScriptAvailable = await ensureContentScript(tab.id);
         if (contentScriptAvailable) {
@@ -205,23 +297,37 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
             result: result
           }, (response) => {
             if (chrome.runtime.lastError) {
+              console.log(`response: ${response.status}`)
               console.log('Could not send message to content script:', chrome.runtime.lastError.message);
             }
           });
         }
       }
       
-      // Always show notification regardless of content script
+      // always show notification
       if (result.success && result.data) {
         const data = result.data;
         const isFake = data.prediction === 'fake';
         const confidence = (data.confidence * 100).toFixed(1);
         
+        let notificationMessage = `${data.message}`;
+        
+        // add source information to notification if available
+        if (data.source_info && data.confidence_explanation) {
+          const sourceInfo = data.source_info;
+          notificationMessage += `\nSource: ${sourceInfo.domain} (${sourceInfo.confidence_level} reliability)`;
+          
+          if (data.original_confidence && Math.abs(data.confidence - data.original_confidence) > 0.05) {
+            const change = data.confidence > data.original_confidence ? "boosted" : "reduced";
+            notificationMessage += `\nConfidence ${change} based on source reliability`;
+          }
+        }
+
         chrome.notifications.create({
           type: 'basic',
           iconUrl: 'icons/icon48.png',
           title: isFake ? 'Warning: Fake News Detected' : 'Verified: Real News',
-          message: `${data.message} (${confidence}% confidence)`
+          message: notificationMessage
         });
       } else {
         chrome.notifications.create({
@@ -237,13 +343,19 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       console.log("Image URL to verify:", info.srcUrl);
       
       try {
-        // Download image and convert to base64
+        // download image and convert to base64
         const base64Data = await downloadImageAsBase64(info.srcUrl);
         
-        // Verify the image using base64 data instead of URL
-        const result = await api.verifyImage(null, base64Data);
+        // create request with source information
+        const imageRequest = {
+          type: 'image',
+          imageData: base64Data,
+          source_url: tab ? tab.url : null,
+          page_title: tab ? tab.title : null
+        };
         
-        // Try to send message to content script, but don't fail if it's not available
+        const result = await api.predict(imageRequest);
+        
         if (tab && tab.id) {
           const contentScriptAvailable = await ensureContentScript(tab.id);
           if (contentScriptAvailable) {
@@ -253,23 +365,33 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
               result: result
             }, (response) => {
               if (chrome.runtime.lastError) {
+                console.log(`response: ${response.status}`)
                 console.log('Could not send message to content script:', chrome.runtime.lastError.message);
               }
             });
           }
         }
         
-        // Always show notification regardless of content script
         if (result.success && result.data) {
           const data = result.data;
           const isFake = data.prediction === 'fake';
           const confidence = (data.confidence * 100).toFixed(1);
           
+          let notificationMessage = `${data.message}`;
+          let message = data.message;
+          
+          if (data.confidence_explanation && data.original_confidence && 
+              Math.abs(data.confidence - data.original_confidence) > 0.05 &&
+              !message.includes('boosted') && !message.includes('reduced')) {
+              const change = data.confidence > data.original_confidence ? "boosted" : "reduced";
+              message += `\nConfidence ${change} based on source reliability`;
+          }
+          
           chrome.notifications.create({
             type: 'basic',
             iconUrl: 'icons/icon48.png',
             title: isFake ? 'Warning: Fake News in Image' : 'Verified: Real News in Image',
-            message: `${data.message} (${confidence}% confidence)`
+            message: message
           });
         } else {
           chrome.notifications.create({
@@ -295,7 +417,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       
       const result = await api.verifyLink(info.linkUrl);
       
-      // Try to send message to content script, but don't fail if it's not available
       if (tab && tab.id) {
         const contentScriptAvailable = await ensureContentScript(tab.id);
         if (contentScriptAvailable) {
@@ -305,23 +426,30 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
             result: result
           }, (response) => {
             if (chrome.runtime.lastError) {
+              console.log(`response: ${response.status}`)
               console.log('Could not send message to content script:', chrome.runtime.lastError.message);
             }
           });
         }
       }
       
-      // Always show notification regardless of content script
       if (result.success && result.data) {
         const data = result.data;
         const isFake = data.prediction === 'fake';
         const confidence = (data.confidence * 100).toFixed(1);
         
+        let notificationMessage = `${data.title ? data.title.substring(0, 50) + '...' : 'Article'} - ${confidence}% confidence`;
+        
+        if (data.source_info && data.confidence_explanation) {
+          const sourceInfo = data.source_info;
+          notificationMessage += `\nSource: ${sourceInfo.domain} (${sourceInfo.confidence_level} reliability)`;
+        }
+        
         chrome.notifications.create({
           type: 'basic',
           iconUrl: 'icons/icon48.png',
           title: isFake ? 'Warning: Fake News Article' : 'Verified: Real News Article',
-          message: `${data.title ? data.title.substring(0, 50) + '...' : 'Article'} - ${confidence}% confidence`
+          message: notificationMessage
         });
       } else {
         chrome.notifications.create({
@@ -344,7 +472,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
 });
 
-// Handle extension startup
 chrome.runtime.onStartup.addListener(() => {
   console.log("Extension starting up...");
   api.checkServerStatus().then(status => {
@@ -353,7 +480,6 @@ chrome.runtime.onStartup.addListener(() => {
   });
 });
 
-// Handle tab updates to inject content script if needed
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' && tab.url) {
     if (tab.url.includes('facebook.com')) {
@@ -373,22 +499,5 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     }
   }
 });
-
-// Periodic server health check
-// setInterval(async () => {
-//   try {
-//     const status = await api.checkServerStatus();
-//     chrome.storage.local.set({ serverStatus: status });
-//     console.log("Periodic health check:", status.online ? "Server online" : "Server offline");
-//   } catch (error) {
-//     console.error("Health check failed:", error);
-//     chrome.storage.local.set({ 
-//       serverStatus: { 
-//         online: false, 
-//         error: error.message 
-//       } 
-//     });
-//   }
-// }, 60000);
 
 console.log("Background script loaded successfully");
