@@ -36,6 +36,11 @@ tools/           # Scraper scripts and notebooks
 ## Getting Started
 
 ### 1. Backend API
+Install venv and activate it:
+```sh
+python -m venv .venv
+.venv\Scripts\activate  # On Windows
+```
 
 Install dependencies:
 ```sh
