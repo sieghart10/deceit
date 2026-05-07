@@ -80,4 +80,4 @@ python tools/inquirer-scraper.py
 
  ## License
 
-See [LICENSE](LICENSE).
+ [MIT License](LICENSE)
