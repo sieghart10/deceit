@@ -1,5 +1,5 @@
-# Fake News Detector
-News detector that checks if news or posts are real or fake using simple Bag of Words (BoW) + Naive Bayes and scoring algorithms
+# Deceit
+A fake news detector that checks if news or posts are real or fake using simple Bag of Words (BoW) + Naive Bayes and scoring algorithms
 
 <p align="center">
   <img src="https://res.cloudinary.com/izynegallardo/image/upload/v1758404107/1c9b736a-cf5d-418a-a27a-8e39c7b94c4e.png" width="200" />
